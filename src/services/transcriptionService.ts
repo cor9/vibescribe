@@ -3,7 +3,7 @@ import { GoogleGenAI } from "@google/genai";
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 export async function transcribeFile(file: File | string, type: 'audio' | 'video'): Promise<string> {
-  const model = "gemini-1.5-flash"; 
+  const model = "gemini-2.5-flash"; 
   
   let parts: any[] = [];
 
@@ -41,8 +41,17 @@ export async function transcribeFile(file: File | string, type: 'audio' | 'video
     return response.text || "Transcription failed or returned empty.";
   } catch (error: any) {
     console.error("Transcription error:", error);
+    
+    // Debug helper: List all models available to this key
+    try {
+      const models = await ai.models.list();
+      console.log("AVAILABLE MODELS FOR YOUR KEY:", models.map((m: any) => m.name));
+    } catch (e) {
+      console.error("Could not list models", e);
+    }
+
     if (error.message?.includes("RESOURCE_EXHAUSTED") || error.status === 429) {
-      throw new Error("Quota Exceeded: Your Gemini API key has reached its limit or does not have access to this model (Gemini 3 Flash). Please check your Google AI Studio billing.");
+      throw new Error("Quota Exceeded: Your Gemini API key has reached its limit. Please check your Google AI Studio billing.");
     }
     throw error;
   }
