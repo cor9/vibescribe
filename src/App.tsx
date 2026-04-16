@@ -1,17 +1,4 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { 
-  collection, 
-  addDoc, 
-  query, 
-  orderBy, 
-  onSnapshot,
-  serverTimestamp,
-  updateDoc,
-  doc,
-  deleteDoc
-} from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { db, storage } from './firebase';
 import { transcribeFile, transcribeUrl } from './services/transcriptionService';
 import { 
   Upload, 
@@ -25,30 +12,26 @@ import {
   AlertCircle,
   Plus,
   X,
-  ShieldCheck,
-  Globe,
-  Layers,
   CassetteTape,
   Disc,
-  Music,
   Mic2,
   Radio,
   Keyboard,
-  Database,
-  HardDrive
+  Globe
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from './lib/utils';
 
+// Local storage key for history
+const STORAGE_KEY = 'vibescribe_history';
+
 interface TranscriptRecord {
   id: string;
-  userId: string;
   fileName: string;
-  fileUrl?: string;
-  status: 'pending' | 'processing' | 'completed' | 'failed';
+  status: 'processing' | 'completed' | 'failed';
   transcript?: string;
   type: 'audio' | 'video';
-  createdAt: any;
+  createdAt: number;
   error?: string;
 }
 
@@ -62,66 +45,50 @@ export default function App() {
   
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Load history from LocalStorage
   useEffect(() => {
-    // Fetch all transcripts (local-first vibe, no auth)
-    const q = query(
-      collection(db, 'transcripts'),
-      orderBy('createdAt', 'desc')
-    );
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const docs = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })) as TranscriptRecord[];
-      setTranscripts(docs);
-      setLoading(false);
-    }, (error) => {
-      console.error("Firestore subscription error:", error);
-      setLoading(false);
-    });
-
-    return () => unsubscribe();
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) {
+      try {
+        setTranscripts(JSON.parse(saved));
+      } catch (e) {
+        console.error("Failed to load history", e);
+      }
+    }
+    setLoading(false);
   }, []);
+
+  // Save history to LocalStorage
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(transcripts));
+  }, [transcripts]);
 
   const processFile = async (file: File) => {
     setIsUploading(true);
     const type = file.type.startsWith('audio') ? 'audio' : 'video';
+    const id = Math.random().toString(36).substring(7);
+
+    const newRecord: TranscriptRecord = {
+      id,
+      fileName: file.name,
+      status: 'processing',
+      type,
+      createdAt: Date.now()
+    };
+
+    setTranscripts(prev => [newRecord, ...prev]);
     
-    let docRef: any = null;
     try {
-      // 1. Create record in Firestore
-      docRef = await addDoc(collection(db, 'transcripts'), {
-        userId: 'local-user',
-        fileName: file.name,
-        status: 'processing',
-        type: type,
-        createdAt: serverTimestamp()
-      });
-
-      // 2. Upload to Storage
-      const storageRef = ref(storage, `transcripts/local/${docRef.id}_${file.name}`);
-      await uploadBytes(storageRef, file);
-      const fileUrl = await getDownloadURL(storageRef);
-      
-      await updateDoc(docRef, { fileUrl });
-
-      // 3. Transcribe
       const transcript = await transcribeFile(file, type);
       
-      // 4. Update record
-      await updateDoc(docRef, {
-        status: 'completed',
-        transcript: transcript
-      });
+      setTranscripts(prev => prev.map(t => 
+        t.id === id ? { ...t, status: 'completed', transcript } : t
+      ));
     } catch (error: any) {
       console.error("Processing failed:", error);
-      if (docRef) {
-        await updateDoc(docRef, { 
-          status: 'failed',
-          error: error.message || String(error)
-        });
-      }
+      setTranscripts(prev => prev.map(t => 
+        t.id === id ? { ...t, status: 'failed', error: error.message || String(error) } : t
+      ));
     } finally {
       setIsUploading(false);
     }
@@ -140,45 +107,38 @@ export default function App() {
 
     setIsUploading(true);
     const type = urlInput.includes('video') || urlInput.endsWith('.mp4') ? 'video' : 'audio';
-    
-    let docRef: any = null;
-    try {
-      docRef = await addDoc(collection(db, 'transcripts'), {
-        userId: 'local-user',
-        fileName: urlInput.split('/').pop() || 'Remote File',
-        fileUrl: urlInput,
-        status: 'processing',
-        type: type,
-        createdAt: serverTimestamp()
-      });
+    const id = Math.random().toString(36).substring(7);
 
+    const newRecord: TranscriptRecord = {
+      id,
+      fileName: urlInput.split('/').pop() || 'Remote File',
+      status: 'processing',
+      type,
+      createdAt: Date.now()
+    };
+
+    setTranscripts(prev => [newRecord, ...prev]);
+    
+    try {
       const transcript = await transcribeUrl(urlInput, type);
       
-      await updateDoc(docRef, {
-        status: 'completed',
-        transcript: transcript
-      });
+      setTranscripts(prev => prev.map(t => 
+        t.id === id ? { ...t, status: 'completed', transcript } : t
+      ));
       setUrlInput('');
     } catch (error: any) {
       console.error("URL processing failed:", error);
-      if (docRef) {
-        await updateDoc(docRef, { 
-          status: 'failed',
-          error: error.message || String(error)
-        });
-      }
+      setTranscripts(prev => prev.map(t => 
+        t.id === id ? { ...t, status: 'failed', error: error.message || String(error) } : t
+      ));
     } finally {
       setIsUploading(false);
     }
   };
 
-  const deleteTranscript = async (id: string) => {
-    try {
-      await deleteDoc(doc(db, 'transcripts', id));
-      if (selectedTranscript?.id === id) setSelectedTranscript(null);
-    } catch (error) {
-      console.error("Delete failed:", error);
-    }
+  const deleteTranscript = (id: string) => {
+    setTranscripts(prev => prev.filter(t => t.id !== id));
+    if (selectedTranscript?.id === id) setSelectedTranscript(null);
   };
 
   if (loading) {
@@ -200,18 +160,14 @@ export default function App() {
             </div>
             <div>
               <h2 className="text-3xl font-black tracking-tighter uppercase italic">VibeScribe</h2>
-              <p className="text-xs font-bold tracking-[0.2em] text-[#D45D00] -mt-1">ANALOG SOUL • DIGITAL MIND</p>
+              <p className="text-xs font-bold tracking-[0.2em] text-[#D45D00] -mt-1">LOCAL MODE • NO CLOUD SETUP</p>
             </div>
           </div>
           
           <div className="flex items-center gap-6">
-            <div className="hidden md:flex items-center gap-3 px-4 py-2 bg-[#E9B824]/10 border-2 border-[#E9B824] rounded-full">
-              <Database className="w-4 h-4 text-[#D45D00]" />
-              <span className="text-xs font-black text-[#D45D00] uppercase">Cloud Storage Active</span>
-            </div>
             <div className="hidden md:flex items-center gap-3 px-4 py-2 bg-[#568203]/10 border-2 border-[#568203] rounded-full">
-              <ShieldCheck className="w-4 h-4 text-[#568203]" />
-              <span className="text-xs font-black text-[#568203] uppercase">Tailscale Node</span>
+              <CheckCircle2 className="w-4 h-4 text-[#568203]" />
+              <span className="text-xs font-black text-[#568203] uppercase">Browser Storage Active</span>
             </div>
             <div className="flex items-center gap-4">
               <div className="w-12 h-12 rounded-2xl border-4 border-[#4B3621] bg-[#E9B824] flex items-center justify-center shadow-[4px_4px_0px_0px_rgba(75,54,33,1)]">
@@ -287,7 +243,7 @@ export default function App() {
                     type="url" 
                     value={urlInput}
                     onChange={(e) => setUrlInput(e.target.value)}
-                    placeholder="https://archive.org/audio/..."
+                    placeholder="https://..."
                     className="w-full p-5 bg-[#F5F2ED] border-4 border-[#4B3621] rounded-2xl focus:ring-8 focus:ring-[#D45D00]/10 outline-none font-bold text-lg placeholder:opacity-30"
                   />
                 </div>
@@ -324,7 +280,6 @@ export default function App() {
                       <button 
                         onClick={() => deleteTranscript(t.id)}
                         className="p-1 hover:bg-black/5 rounded-md transition-colors"
-                        title="Cancel process"
                       >
                         <X className="w-4 h-4" />
                       </button>
@@ -335,28 +290,17 @@ export default function App() {
             </section>
           )}
 
-          {/* Tailscale / Local Network Info */}
+          {/* Local Status Info */}
           <section className="bg-[#4B3621] text-[#F5F2ED] rounded-[2rem] p-8 shadow-[16px_16px_0px_0px_rgba(233,184,36,1)]">
              <div className="flex items-center justify-between mb-6">
                 <h3 className="text-xl font-black uppercase italic flex items-center gap-3">
-                  <Globe className="w-6 h-6 text-[#E9B824]" /> Network Node
+                  <Globe className="w-6 h-6 text-[#E9B824]" /> Offline-First Mode
                 </h3>
-                <div className="w-3 h-3 bg-green-400 rounded-full animate-pulse shadow-[0_0_12px_rgba(74,222,128,0.5)]" />
+                <div className="w-3 h-3 bg-green-400 rounded-full shadow-[0_0_12px_rgba(74,222,128,0.5)]" />
              </div>
-             <div className="space-y-4 font-mono text-sm">
-                <div className="flex justify-between border-b border-white/10 pb-2">
-                  <span className="opacity-50 uppercase">Device ID</span>
-                  <span className="font-bold">vibe-scribe-node-01</span>
-                </div>
-                <div className="flex justify-between border-b border-white/10 pb-2">
-                  <span className="opacity-50 uppercase">Tailnet IP</span>
-                  <span className="font-bold">100.82.14.93</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="opacity-50 uppercase">Status</span>
-                  <span className="text-[#E9B824] font-bold uppercase">Encrypted & Synced</span>
-                </div>
-             </div>
+             <p className="text-sm font-bold opacity-60 leading-relaxed uppercase">
+                Cloud databases bypassed. History is encrypted and stored locally in your browser.
+             </p>
           </section>
         </div>
 
@@ -376,7 +320,7 @@ export default function App() {
                   <div>
                     <h3 className="text-2xl font-black leading-tight uppercase italic">{selectedTranscript.fileName}</h3>
                     <p className="text-xs opacity-80 uppercase font-black tracking-widest mt-1">
-                      {selectedTranscript.createdAt?.toDate() ? new Date(selectedTranscript.createdAt.toDate()).toLocaleDateString() : 'Just now'} • {selectedTranscript.type}
+                      {new Date(selectedTranscript.createdAt).toLocaleDateString()} • {selectedTranscript.type}
                     </p>
                   </div>
                 </div>
@@ -392,6 +336,12 @@ export default function App() {
               <div className="p-10 prose prose-stone max-w-none">
                 <div className="bg-[#F5F2ED] p-8 rounded-[2rem] border-4 border-[#4B3621] whitespace-pre-wrap font-medium leading-relaxed text-xl shadow-inner">
                   {selectedTranscript.transcript || "No transcript available."}
+                  {selectedTranscript.status === 'failed' && (
+                    <div className="mt-4 p-4 bg-red-50 text-red-600 rounded-xl border-2 border-red-100 flex items-center gap-3">
+                      <AlertCircle className="w-5 h-5" />
+                      <span className="font-bold uppercase text-xs">Error: {selectedTranscript.error}</span>
+                    </div>
+                  )}
                 </div>
               </div>
             </motion.section>
@@ -405,9 +355,6 @@ export default function App() {
 
               {transcripts.length === 0 ? (
                 <div className="bg-white border-8 border-dashed border-[#E9B824]/30 rounded-[3rem] p-24 text-center">
-                  <div className="w-24 h-24 bg-[#E9B824]/10 rounded-full flex items-center justify-center mx-auto mb-8 border-4 border-[#E9B824]/20">
-                    <Music className="w-12 h-12 text-[#D45D00]/40" />
-                  </div>
                   <p className="text-2xl font-black text-[#4B3621]/30 italic uppercase tracking-widest">The tape is blank.</p>
                 </div>
               ) : (
@@ -420,7 +367,7 @@ export default function App() {
                         initial={{ opacity: 0, y: 20 }}
                         animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0, scale: 0.9 }}
-                        onClick={() => t.status === 'completed' && setSelectedTranscript(t)}
+                        onClick={() => t.status !== 'processing' && setSelectedTranscript(t)}
                         className={cn(
                           "group bg-white border-8 border-[#4B3621] rounded-[2rem] p-6 cursor-pointer transition-all hover:shadow-[12px_12px_0px_0px_rgba(233,184,36,1)] hover:-translate-x-1 hover:-translate-y-1",
                           t.status === 'processing' && "opacity-60 pointer-events-none"
@@ -443,7 +390,7 @@ export default function App() {
                         </div>
                         <h4 className="font-black text-xl truncate mb-2 uppercase italic">{t.fileName}</h4>
                         <p className="text-xs text-[#4B3621]/60 font-black uppercase tracking-[0.2em]">
-                          {t.createdAt?.toDate() ? new Date(t.createdAt.toDate()).toLocaleDateString() : 'Just now'}
+                          {new Date(t.createdAt).toLocaleDateString()}
                         </p>
                         
                         <div className="mt-6 flex items-center justify-between">
@@ -458,7 +405,7 @@ export default function App() {
                               e.stopPropagation();
                               deleteTranscript(t.id);
                             }}
-                            className="p-2 hover:bg-red-50 text-red-600 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity border-2 border-transparent hover:border-red-100"
+                            className="p-2 hover:bg-red-50 text-red-600 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity"
                           >
                             <Trash2 className="w-5 h-5" />
                           </button>
@@ -472,22 +419,6 @@ export default function App() {
           )}
         </div>
       </main>
-
-      {/* Footer / Plaid Accent */}
-      <footer className="mt-auto border-t-8 border-[#4B3621] bg-white p-10 relative overflow-hidden">
-        <div className="absolute inset-0 plaid-pattern opacity-10" />
-        <div className="max-w-7xl mx-auto relative z-10 flex flex-col md:flex-row items-center justify-between gap-6">
-          <div className="flex items-center gap-3 text-sm font-black uppercase italic opacity-60">
-            <CassetteTape className="w-5 h-5" />
-            <span>© 2026 VibeScribe • Analog Soul • Digital Mind</span>
-          </div>
-          <div className="flex gap-8 text-xs font-black uppercase tracking-[0.3em] opacity-40">
-            <a href="#" className="hover:text-[#D45D00] transition-colors">Privacy</a>
-            <a href="#" className="hover:text-[#D45D00] transition-colors">Terms</a>
-            <a href="#" className="hover:text-[#D45D00] transition-colors">Support</a>
-          </div>
-        </div>
-      </footer>
     </div>
   );
 }
