@@ -319,7 +319,16 @@ export default function App() {
                       {t.type === 'audio' ? <FileAudio className="w-6 h-6 shrink-0" /> : <FileVideo className="w-6 h-6 shrink-0" />}
                       <span className="font-black truncate text-sm uppercase italic">{t.fileName}</span>
                     </div>
-                    <div className="w-2 h-2 bg-[#D45D00] rounded-full animate-ping" />
+                    <div className="flex items-center gap-3">
+                      <div className="w-2 h-2 bg-[#D45D00] rounded-full animate-ping" />
+                      <button 
+                        onClick={() => deleteTranscript(t.id)}
+                        className="p-1 hover:bg-black/5 rounded-md transition-colors"
+                        title="Cancel process"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
