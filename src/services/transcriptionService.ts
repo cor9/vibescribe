@@ -38,7 +38,18 @@ export async function transcribeFile(file: File | string, type: 'audio' | 'video
       contents: [{ parts: parts }]
     });
 
-    return response.text || "Transcription failed or returned empty.";
+    if (!response.text) {
+      console.warn("Gemini returned empty text. Response object:", response);
+      // Some versions of the SDK require checking candidates directly
+      const candidate = (response as any).candidates?.[0];
+      if (candidate) {
+        console.warn("Stop Reason:", candidate.finishReason);
+        console.warn("Safety Ratings:", candidate.safetyRatings);
+      }
+      return "Transcription appeared successful but returned no text. This might be due to safety filters or silent audio. Check the browser console for details.";
+    }
+
+    return response.text;
   } catch (error: any) {
     console.error("Transcription error:", error);
     
