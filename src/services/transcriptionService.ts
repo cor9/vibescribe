@@ -3,7 +3,7 @@ import { GoogleGenAI } from "@google/genai";
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 export async function transcribeFile(file: File | string, type: 'audio' | 'video'): Promise<string> {
-  const model = "gemini-3-flash"; 
+  const model = "gemini-1.5-flash"; 
   
   let parts: any[] = [];
 
