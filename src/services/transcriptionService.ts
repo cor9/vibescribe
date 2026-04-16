@@ -3,7 +3,7 @@ import { GoogleGenAI } from "@google/genai";
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 export async function transcribeFile(file: File | string, type: 'audio' | 'video'): Promise<string> {
-  const model = "gemini-2.0-flash"; // gemini-1.5-flash is deprecated as of late 2025
+  const model = "gemini-3-flash"; 
   
   let parts: any[] = [];
 
@@ -14,11 +14,8 @@ export async function transcribeFile(file: File | string, type: 'audio' | 'video
     });
     parts.push({
       inlineData: {
-        mimeType: type === 'audio' ? 'audio/mpeg' : 'video/mp4', // Defaulting, but ideally we'd detect
-        data: file // This is tricky for URLs in inlineData, usually it expects base64. 
-        // For URLs, we might need to fetch and convert to base64 or use File API if supported.
-        // Actually, Gemini API's generateContent with URLs is usually handled via File API or specific tools.
-        // But for this environment, let's assume we convert to base64 if it's a local file.
+        mimeType: type === 'audio' ? 'audio/mpeg' : 'video/mp4',
+        data: file 
       }
     });
   } else {
@@ -42,8 +39,11 @@ export async function transcribeFile(file: File | string, type: 'audio' | 'video
     });
 
     return response.text || "Transcription failed or returned empty.";
-  } catch (error) {
+  } catch (error: any) {
     console.error("Transcription error:", error);
+    if (error.message?.includes("RESOURCE_EXHAUSTED") || error.status === 429) {
+      throw new Error("Quota Exceeded: Your Gemini API key has reached its limit or does not have access to this model (Gemini 3 Flash). Please check your Google AI Studio billing.");
+    }
     throw error;
   }
 }
