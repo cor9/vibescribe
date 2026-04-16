@@ -3,7 +3,7 @@ import { GoogleGenAI } from "@google/genai";
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 export async function transcribeFile(file: File | string, type: 'audio' | 'video'): Promise<string> {
-  const model = "gemini-1.5-flash"; // Using 1.5 flash for speed and multimodal support
+  const model = "gemini-2.0-flash"; // gemini-1.5-flash is deprecated as of late 2025
   
   let parts: any[] = [];
 
@@ -38,7 +38,7 @@ export async function transcribeFile(file: File | string, type: 'audio' | 'video
   try {
     const response = await ai.models.generateContent({
       model: model,
-      contents: { parts: parts }
+      contents: [{ parts: parts }]
     });
 
     return response.text || "Transcription failed or returned empty.";

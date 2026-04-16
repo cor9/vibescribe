@@ -88,9 +88,10 @@ export default function App() {
     setIsUploading(true);
     const type = file.type.startsWith('audio') ? 'audio' : 'video';
     
+    let docRef: any = null;
     try {
       // 1. Create record in Firestore
-      const docRef = await addDoc(collection(db, 'transcripts'), {
+      docRef = await addDoc(collection(db, 'transcripts'), {
         userId: 'local-user',
         fileName: file.name,
         status: 'processing',
@@ -115,6 +116,12 @@ export default function App() {
       });
     } catch (error: any) {
       console.error("Processing failed:", error);
+      if (docRef) {
+        await updateDoc(docRef, { 
+          status: 'failed',
+          error: error.message || String(error)
+        });
+      }
     } finally {
       setIsUploading(false);
     }
@@ -134,8 +141,9 @@ export default function App() {
     setIsUploading(true);
     const type = urlInput.includes('video') || urlInput.endsWith('.mp4') ? 'video' : 'audio';
     
+    let docRef: any = null;
     try {
-      const docRef = await addDoc(collection(db, 'transcripts'), {
+      docRef = await addDoc(collection(db, 'transcripts'), {
         userId: 'local-user',
         fileName: urlInput.split('/').pop() || 'Remote File',
         fileUrl: urlInput,
@@ -153,6 +161,12 @@ export default function App() {
       setUrlInput('');
     } catch (error: any) {
       console.error("URL processing failed:", error);
+      if (docRef) {
+        await updateDoc(docRef, { 
+          status: 'failed',
+          error: error.message || String(error)
+        });
+      }
     } finally {
       setIsUploading(false);
     }
